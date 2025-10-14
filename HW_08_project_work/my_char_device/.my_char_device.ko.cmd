@@ -1,0 +1,1 @@
+cmd_/home/student/my_char_device/my_char_device.ko := ld -r -m elf_x86_64 -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T scripts/module.lds -o /home/student/my_char_device/my_char_device.ko /home/student/my_char_device/my_char_device.o /home/student/my_char_device/my_char_device.mod.o;  true

@@ -1,0 +1,1 @@
+cmd_/home/student/my_char_device/my_char_device.mod := printf '%s\n'   my_char_device.o | awk '!x[$$0]++ { print("/home/student/my_char_device/"$$0) }' > /home/student/my_char_device/my_char_device.mod

@@ -12,6 +12,10 @@
 
 //Глобальная структура данных для драйвера
 struct my_char_device_data my_data;
+static dev_t dev;
+static struct class *my_char_device_class;
+
+
 
 //ioctl function
 static long my_char_device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param)
@@ -25,7 +29,7 @@ static long my_char_device_ioctl(struct file *file, unsigned int ioctl_num, unsi
 			value = my_data.count;
 			if(copy_to_user((void __user *)ioctl_param, &value, sizeof(int)))
 			{
-				return EFAULT;
+				return -EFAULT;
 			}
 			printk(KERN_INFO "%s: ioctl called, count = %d\n",DEVICE_NAME,my_data.count);
 			break;
@@ -56,6 +60,7 @@ static ssize_t my_char_device_read(struct file *file, char __user *user_buffer, 
 
 	if(*offset >= my_data.count)
 	{
+		*offset += length;
 		return 0; //End of file
 	}
 
@@ -125,7 +130,10 @@ static int proc_open(struct inode *inode, struct file *file)
 static const struct proc_ops proc_ops = 
 {
 	.proc_open = proc_open,
-	.proc_read = proc_show
+	//.proc_read = proc_show
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = seq_release,
 };
 
 //Sysfs attribute show function
@@ -147,27 +155,42 @@ static ssize_t sysfs_attr_store(struct attribute *attr, const char *buf, size_t 
 	return -EINVAL;
 }
 
+
 static struct attribute sysfs_attr = {
-	.name = "count",
-	.mode = S_IRUGO | S_IWUGO, //Read and write for all users
-	.show = sysfs_attr_show,
-	.store = sysfs_attr_store,
+	.name = "my_attr",
+	.mode = 0666, //Read and write for all users
+};
+
+
+static struct attribute *sysfs_attrs[] = 
+{
+	&sysfs_attr,
+	/*.show = sysfs_attr_show,
+	.store = sysfs_attr_store,*/
+	NULL
 };
 
 static struct attribute_group sysfs_group = {
-	.attrs = &sysfs_attr,
-	.ngattrs = 1,
+	.attrs = sysfs_attrs,
 };
 
 //Inititalization function
 int my_char_device_init(void)
 {
 	int ret;
+
+	my_char_device_class = class_create(THIS_MODULE,CLASS_NAME);
+	if(IS_ERR(my_char_device_class))
+	{
+		pr_err("Failed to create device class\n");
+		return PTR_ERR(my_char_device_class);
+	}
+
 	struct device *device;
 
 	//Allocate a character device number
 	ret = alloc_chrdev_region(&dev, 0, 1, DEVICE_NAME);
-	if(ret < 0)
+	if(ret)
 	{
 		printk(KERN_ALERT "%s: Failed to allocate character device region\n",DEVICE_NAME);
 		return ret;
@@ -175,6 +198,14 @@ int my_char_device_init(void)
 
 	my_data.major_number = MAJOR(dev);
 	my_data.minor_number = MINOR(dev);
+	//my_data.my_device = device_create(my_char_device_class, NULL, dev, NULL, "my_device");
+	/*if(IS_ERR(my_data.my_device))
+	{
+		pr_err("device_create failed\n");
+		unregister_chrdev_region(dev,1);
+		class_destroy(my_char_device_class);
+		return PRT_ERR(my_data.my_device);
+	}*/
 	printk(KERN_INFO "%s: Major number = %d, Minor number = %d\n", DEVICE_NAME, my_data.major_number, my_data.minor_number);
 
 	//Initialize the character device
@@ -190,13 +221,14 @@ int my_char_device_init(void)
 	}
 
 	//Create device class for udev
-	device = device_create(&my_char_device_class, NULL, my_data.major_number, NULL, DEVICE_NAME);
-	if(IS_ERR(device))
+	my_data.my_device = device_create(my_char_device_class, NULL, dev, NULL, DEVICE_NAME);
+	if(IS_ERR(my_data.my_device))
 	{
 		printk(KERN_ALERT "%s: Failed to create device\n", DEVICE_NAME);
 		cdev_del(&my_data.my_cdev);
 		unregister_chrdev_region(dev,1);
-		return PTR_ERR(device);
+		class_destroy(my_char_device_class);
+		return PTR_ERR(my_data.my_device);
 	}
 
 	//Create /proc entry
@@ -215,6 +247,7 @@ int my_char_device_init(void)
 
 	
 	my_data.buffer = kmalloc(1024,GFP_KERNEL);
+	my_data.buffer_size = 1024;
 	if(!my_data.buffer)
 	{
 		printk(KERN_ALERT "%s: Failed to allocate buffer\n", DEVICE_NAME);
@@ -236,13 +269,14 @@ int my_char_device_init(void)
 void my_char_device_exit(void)
 {
 	printk(KERN_INFO "%s: Device exiting\n",DEVICE_NAME);
-	kfree(my_data.buffer);
+	if(my_data.buffer)kfree(my_data.buffer);
 
-	sysfs_remove_group(&device->kobj,&sysfs_group);
-	proc_remove(my_data.proc_entry);
-	device_destroy(my_char_device_class, MAJOR(dev));
+	if(sysfs_group.attrs)sysfs_remove_group(&my_data.my_device->kobj,&sysfs_group);
+	if(my_data.proc_entry)proc_remove(my_data.proc_entry);
+	if(my_data.my_device)device_destroy(my_char_device_class, MAJOR(dev));
 
 	cdev_del(&my_data.my_cdev);
+	class_destroy(my_char_device_class);
 	unregister_chrdev_region(dev,1);
 }
 

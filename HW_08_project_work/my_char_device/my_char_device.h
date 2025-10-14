@@ -5,10 +5,10 @@
 #include <linux/kernel.h>
 #include <linux/fs.h>
 #include <linux/cdev.h>
-#include <linux/device.h>
 #include <linux/uaccess.h> // For copy_to_user and copy_from_user
 #include <linux/proc_fs.h>
 #include <linux/sysfs.h>
+#include <linux/ioctl.h>
 
 #define DEVICE_NAME "my_char_device"
 #define CLASS_NAME "my_char_device_class"
@@ -25,7 +25,7 @@ struct my_char_device_data {
 	size_t buffer_size;
 	int count;
 	struct proc_dir_entry *proc_entry;
-	struct attribute *sysfs_attr;
+	struct attribute sysfs_attr;
 	struct attribute_group sysfs_group;
 };
 
